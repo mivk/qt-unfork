@@ -1,0 +1,158 @@
+#! /bin/bash
+
+# Ask QT7 to "flatten movie" by re-saving as a single file
+# fixes problem of QT "moov" atom in separate resource fork
+
+# Todo:
+# - docs
+# - tests
+
+
+######## INIT ########
+
+me=$(basename "$0")
+
+my_version=0.1
+
+rename_suffix_default="-unforked"
+
+
+######## FUNCTIONS ########
+
+die() {
+        echo "$@" 1>&2
+        exit 1
+}
+
+warn() {
+        echo "$@" 1>&2
+}
+
+my_realpath() {
+    [[ "$1" = /* ]] && echo "$1" || echo "$PWD/${1#./}"
+    # https://stackoverflow.com/questions/3572030/bash-script-absolute-path-with-os-x/3572105#3572105
+}
+
+usage() {
+        cat <<EOF
+
+        Usage: $me [options] FILE
+
+        Options:
+                -h               : This help
+                -d               : Debug
+                -v               : Verbose
+                -n               : Dry run. Do not actually do it.
+
+                -o out_folder    : Output folder for saving flattened files
+                -r rename_suffix : Rename output file by adding suffix before extension
+EOF
+}
+
+
+######## GET OPTIONS ########
+
+while getopts "hdvno:r:" opt; do
+        case $opt in
+                h) usage; exit;;
+                d) debug=1; verbose=1;;
+                v) verbose=1;;
+                n) dry_run=1;;
+
+                o) outdir=$OPTARG;;
+                r) rename_suffix=$OPTARG;;
+                *) usage; exit 1;;
+        esac
+done
+shift $((OPTIND -1))
+
+in="$1"
+
+((debug)) && echo "
+debug         = $debug
+verbose       = $verbose
+dry_run       = $dry_run
+outdir        = $outdir
+rename_suffix = $rename_suffix
+in            = $in
+"
+
+######## CHECKS ########
+
+# - Check this is a Mac (do new Macs say "macOS"?)
+if ! { sw_vers | grep -q Mac && uname | grep -q Darwin; } then
+	die "Error: this only runs on Mac OS"
+fi
+
+# Check we have Quicktime 7
+if ! osascript -e 'id of application "QuickTime Player 7"' >/dev/null 2>&1; then
+	die "Error: Cannot find Quicktime 7"
+fi
+
+if [ ! -f "$in" ]; then
+	usage
+	die "Error: file '$in' not found"
+fi
+
+if ! grep -q 'moov' "$in/..namedfork/rsrc" 2>/dev/null; then
+	warn "Warning: no moov in rsrc or no rsrc. Skipping '$in'"
+	exit
+fi
+
+
+######## SET VARS ########
+
+if [ -z "$rename_suffix" ] && [ -z "$outdir" ]; then
+	rename_suffix="$rename_suffix_default"
+fi
+
+newfile="$in"
+
+if [ -n "$outdir" ]; then
+	newfile="$outdir/$(basename "$newfile")"
+	if ((dry_run)); then
+		warn "Would create dir '$outdir'"
+	else
+		mkdir -p "$outdir" || die "Cannot create '$outdir'"
+	fi
+fi
+
+if [ -n "$rename_suffix" ]; then
+	newfile="${newfile/%.mov/$rename_suffix.mov}"
+fi
+
+
+if [ -e "$newfile" ]; then
+	warn "Warning: skipping existing file '$newfile'"
+	exit
+fi
+
+real_in="$(my_realpath "$in")"
+real_newfile="$(my_realpath "$newfile")"
+
+if ((dry_run)); then
+	echo "Would convert $real_in"
+	echo "           to $real_newfile"
+	exit
+fi
+
+
+######## DO IT ########
+
+(( verbose )) && echo "Converting $real_in"
+(( verbose )) && echo "        to $real_newfile"
+
+osascript - <<END
+	tell application "QuickTime Player 7"
+		open POSIX file "$real_in"
+		tell front document
+			save self contained in ("$real_newfile" as POSIX file)
+			close
+		end tell
+	end tell
+END
+rv=$?
+
+((debug)) && echo "Result: $rv"
+exit $rv
+
