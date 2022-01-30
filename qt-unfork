@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/bin/bash
 
 # Ask QT7 to "flatten movie" by re-saving as a single file
 # fixes problem of QT "moov" atom in separate resource fork
@@ -7,12 +7,13 @@
 # - docs
 # - tests
 
+#set -x
 
 ######## INIT ########
 
 me=$(basename "$0")
 
-my_version=0.1
+my_version=0.1.1
 
 rename_suffix_default="-unforked"
 
@@ -84,9 +85,14 @@ if ! { sw_vers | grep -q Mac && uname | grep -q Darwin; } then
 	die "Error: this only runs on Mac OS"
 fi
 
-# Check we have Quicktime 7
-if ! osascript -e 'id of application "QuickTime Player 7"' >/dev/null 2>&1; then
-	die "Error: Cannot find Quicktime 7"
+# Check we have Quicktime 7 (apparently, it can have different names!)
+#if    osascript -e 'id of application "QuickTime Player 7"' >/dev/null 2>&1 \
+#   || osascript -e 'id of application "QuickTime 7 Pro"'    >/dev/null 2>&1; then
+#   ((debug)) && echo "OK: QT7 found"
+if osascript -e 'exists application id "com.apple.quicktimeplayer"' >/dev/null 2>&1; then
+   ((debug)) && echo "OK: Quicktime 7 found"
+else
+	die "ERROR: Cannot find Quicktime 7"
 fi
 
 if [ ! -f "$in" ]; then
@@ -134,6 +140,10 @@ if ((dry_run)); then
 	echo "Would convert $real_in"
 	echo "           to $real_newfile"
 	exit
+else
+	if [ ! -w "$(dirname "$real_newfile")" ]; then
+		die "Error: Cannot write to $real_newfile"
+	fi
 fi
 
 
@@ -143,7 +153,7 @@ fi
 (( verbose )) && echo "        to $real_newfile"
 
 osascript - <<END
-	tell application "QuickTime Player 7"
+	tell application id "com.apple.quicktimeplayer"
 		open POSIX file "$real_in"
 		tell front document
 			save self contained in ("$real_newfile" as POSIX file)
@@ -155,4 +165,3 @@ rv=$?
 
 ((debug)) && echo "Result: $rv"
 exit $rv
-
